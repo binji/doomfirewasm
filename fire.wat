@@ -3,7 +3,7 @@
 ;; FIRE_WIDTH * FIRE_HEIGHT = 53760
 ;; FIRE_WIDTH * (FIRE_HEIGHT - 1) = 53440
 
-(import "Math" "random" (func $random (result f64)))
+(import "" "rand" (func $random (result f64)))
 
 ;; 5 pages * 64KiB bytes per page:
 ;; [0, 53760)       => firePixels, 1 byte per pixel.
@@ -27,7 +27,7 @@
   ;; Fill bottom row with color 36, (R=0xff, G=0xff, B=0xff).
   (local.set $i (i32.const 320))
   (loop
-    ;; memory[53440 - 1 + 1] = 36
+    ;; memory[53440 - 1 + i] = 36
     (i32.store8 offset=53439 (local.get $i) (i32.const 36))
     ;; loop if --i != 0
     (br_if 0
@@ -36,52 +36,48 @@
 ;; Run setup at start.
 (start $setup)
 
-(func $spreadFire (param $src i32)
+(func (export "run")
+  (local $i i32)
   (local $pixel i32)
   (local $randIdx i32)
 
-  ;; pixel = memory[src]
-  (local.set $pixel (i32.load8_u (local.get $src)))
-
-  (if
-    ;; if pixel == 0
-    (i32.eqz (local.get $pixel))
-    (then
-      ;; memory[src - 320] = 0
-      (i32.store8
-        (i32.sub (local.get $src) (i32.const 320))
-        (i32.const 0)))
-    (else
-      ;; randIdx = round(random() * 3.0) & 3
-      (local.set $randIdx
-        (i32.and
-          (i32.trunc_f64_u
-            (f64.nearest
-              (f64.mul
-                (call $random)
-                (f64.const 3))))
-          (i32.const 3)))
-
-      ;; memory[src - randIdx - 319] = pixel - (randIdx & 1)
-      (i32.store8
-        (i32.sub
-          (i32.sub
-            (local.get $src)
-            (local.get $randIdx))
-          (i32.const 319))
-        (i32.sub
-          (local.get $pixel)
-          (i32.and
-            (local.get $randIdx)
-            (i32.const 1)))))))
-
-(func $doFire
-  (local $i i32)
+  ;; Update the fire.
   (loop $xloop
     (loop $yloop
-      ;; i += 320, spreadFire(i)
-      (call $spreadFire
-        (local.tee $i (i32.add (local.get $i) (i32.const 320))))
+      (if
+        ;; if (pixel = memory[i += 320]) != 0
+        (local.tee $pixel
+          (i32.load8_u
+            (local.tee $i
+              (i32.add (local.get $i) (i32.const 320)))))
+        (then
+          ;; randIdx = round(random() * 3.0) & 3
+          (local.set $randIdx
+            (i32.and
+              (i32.trunc_f64_u
+                (f64.nearest
+                  (f64.mul
+                    (call $random)
+                    (f64.const 3))))
+              (i32.const 3)))
+
+          ;; memory[i - randIdx - 319] = pixel - (randIdx & 1)
+          (i32.store8
+            (i32.sub
+              (i32.sub
+                (local.get $i)
+                (local.get $randIdx))
+              (i32.const 319))
+            (i32.sub
+              (local.get $pixel)
+              (i32.and
+                (local.get $randIdx)
+                (i32.const 1)))))
+        (else
+          ;; memory[i - 320] = 0
+          (i32.store8
+            (i32.sub (local.get $i) (i32.const 320))
+            (i32.const 0))))
 
       ;; loop if i < 53760 - 320
       (br_if $yloop
@@ -91,12 +87,7 @@
     (br_if $xloop
       (i32.ne
         (local.tee $i (i32.sub (local.get $i) (i32.const 53439)))
-        (i32.const 320)))))
-
-(func (export "run")
-  (local $i i32)
-
-  (call $doFire)
+        (i32.const 320))))
 
   ;; copy from firePixels to canvasData, using palette data.
   (local.set $i (i32.const 53760))
