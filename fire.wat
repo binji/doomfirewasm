@@ -76,47 +76,41 @@
             (i32.const 1)))))))
 
 (func $doFire
-  (local $x i32)
-  (local $y i32)
-
+  (local $i i32)
   (loop $xloop
-
-    ;; y = 320
-    (local.set $y (i32.const 320))
     (loop $yloop
-      ;; spreadFire(x + y)
-      (call $spreadFire (i32.add (local.get $x) (local.get $y)))
+      ;; i += 320, spreadFire(i)
+      (call $spreadFire
+        (local.tee $i (i32.add (local.get $i) (i32.const 320))))
 
-      ;; y += 320, loop if y != 53760
+      ;; loop if i < 53760 - 320
       (br_if $yloop
-        (i32.ne
-          (local.tee $y (i32.add (local.get $y) (i32.const 320)))
-          (i32.const 53760))))
+        (i32.lt_u (local.get $i) (i32.const 53440))))
 
-    ;; loop if ++x != 320
+    ;; i -= 53760 - 320 - 1, loop if i != 320
     (br_if $xloop
       (i32.ne
-        (local.tee $x (i32.add (local.get $x) (i32.const 1)))
+        (local.tee $i (i32.sub (local.get $i) (i32.const 53439)))
         (i32.const 320)))))
 
-(func $updateCanvas (export "run")
+(func (export "run")
   (local $i i32)
-  (local $index i32)
 
   (call $doFire)
 
+  ;; copy from firePixels to canvasData, using palette data.
   (local.set $i (i32.const 53760))
   (loop
-    ;; index = memory[i - 1]
-    (local.set $index
-      (i32.load8_u (i32.sub (local.get $i) (i32.const 1))))
+    ;; --i
+    (local.set $i (i32.sub (local.get $i) (i32.const 1)))
 
-    ;; memory[53760 - 4 + (i << 2)] = memory[268800 + (index << 2]
-    (i32.store offset=53756
+    ;; memory[53760 + (i << 2)] = memory[268800 + (memory[i] << 2)]
+    (i32.store offset=53760
       (i32.shl (local.get $i) (i32.const 2))
       (i32.load offset=268800
-        (i32.shl (local.get $index) (i32.const 2))))
+        (i32.shl
+          (i32.load8_u (local.get $i))
+          (i32.const 2))))
 
-    ;; loop if --i != 0
-    (br_if 0
-      (local.tee $i (i32.sub (local.get $i) (i32.const 1))))))
+    ;; loop if i != 0
+    (br_if 0 (local.get $i))))
